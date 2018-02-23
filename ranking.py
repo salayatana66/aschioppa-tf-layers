@@ -22,7 +22,7 @@ class W2VecRanker:
                                                        self.num_latent_factors],
                                               initializer =
                                               tf.truncated_normal_initializer(
-                                                  mean = 0.0, stddev=1.0/np.sqrt(self.num_latent_factors),dtype=tf.float64),type=tf.float64)
+                                                  mean = 0.0, stddev=1.0/np.sqrt(self.num_latent_factors),dtype=tf.float64),dtype=tf.float64)
         else:
             self.weights_in = tf.get_variable(name="weights_in",
                                               initializer =
@@ -32,7 +32,7 @@ class W2VecRanker:
                                                       self.num_latent_factors],
                                                initializer =
                                               tf.truncated_normal_initializer(
-                                                  mean = 0.0, stddev=1.0/np.sqrt(self.num_latent_factors),dtype=tf.float64),type=tf.float64)
+                                                  mean = 0.0, stddev=1.0/np.sqrt(self.num_latent_factors),dtype=tf.float64),dtype=tf.float64)
         else:
             self.weights_out = tf.get_variable(name="weights_out",
                                                initializer =
