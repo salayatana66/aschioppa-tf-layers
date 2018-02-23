@@ -62,8 +62,8 @@ class W2VecRanker:
         Vsampled = self.returnOutSlice(negSampledOutput)
         idxRange = tf.range(start=0,limit=tf.shape(U)[0])
 
-        positive = tf.map_fn(lambda x: tf.reduce_sum(U[x,:]*Vtrue[x,:]),
-                             idxRange,dtype=tf.float64)
+        positive = tf.log(tf.sigmoid(tf.map_fn(lambda x: tf.reduce_sum(U[x,:]*Vtrue[x,:]),
+                             idxRange,dtype=tf.float64)))
         negative = tf.reduce_sum(
             tf.log(
                 tf.sigmoid(-tf.map_fn(lambda x: tf.tensordot(U[x,:],Vsampled[x,:,:],
