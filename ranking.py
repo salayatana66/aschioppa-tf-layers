@@ -48,7 +48,7 @@ class W2VecRanker:
     helper function returns weights for V (Out)
     """
     def returnOutSlice(self,inputTensor):
-        return tf.gather(self.weights_in,inputTensor)
+        return tf.gather(self.weights_out,inputTensor)
 
     """
     Loss trained like in Work to Vec
