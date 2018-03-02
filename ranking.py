@@ -95,7 +95,41 @@ class W2VecRanker:
                              idxRange,dtype=tf.float64)
         return score
 
+"""
+class with only static methods that allows to stack together Response, Positive Examples, Negative Examples
+to create recommendations
+"""
+class genericPairedRanker:
+    @staticmethod
+    def sampledLoss(inputTensor,trueOutput,negSampledOutput):
+        idxRange = tf.range(start=0,limit=tf.shape(inputTensor)[0])
 
+        positive = tf.log(tf.sigmoid(tf.map_fn(lambda x: tf.reduce_sum(inputTensor[x,:]*trueOutput[x,:]),
+                             idxRange,dtype=tf.float64)))
+        negative = tf.reduce_sum(
+            tf.log(
+                tf.sigmoid(-tf.map_fn(lambda x: tf.tensordot(inputTensor[x,:],negSampledOutput[x,:,:],
+                                                    axes=[[0],[1]]),
+                                      idxRange,dtype=tf.float64))),
+            axis=1)
+        loss = -tf.reduce_sum(positive+negative)
+        return loss
+
+
+    """
+    Evaluates an input item against all the output one
+    """
+    @staticmethod
+    def evaluateOnAll(inputTensor,allTensor):
+        idxRange = tf.range(start=0,limit=tf.shape(inputTensor)[0])
+        score = tf.map_fn(lambda x: tf.tensordot(inputTensor[x,:],allTensor,
+                                                  axes=[[0],[1]]),
+                             idxRange,dtype=tf.float64)
+        return score
+
+
+
+    
 """
 Metrics to evaluate Ranking Algorithms
 """

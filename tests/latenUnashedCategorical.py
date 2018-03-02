@@ -36,5 +36,6 @@ with tf.Session() as sess:
     print sess.run([invlook2])
     print sess.run([latentLayer2])
     print sess.run([latentLayer2bis])
+    print Lcat.numInstances
 
 
