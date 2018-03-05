@@ -32,8 +32,8 @@ if __name__ == "__main__":
     with tf.Session() as sess:
         sess.run(tf.tables_initializer())
         sess.run(tf.global_variables_initializer())
-        print sess.run([inputIds,outputIds])
-        print sess.run([vecLoss])
-        print sess.run([scorePair])
-        print sess.run([scoreAll,tf.shape(scoreAll)])
-        print sess.run([tf.log(tf.sigmoid(-scoreAll))])
+        print( sess.run([inputIds,outputIds]))
+        print(sess.run([vecLoss]))
+        print(sess.run([scorePair]))
+        print(sess.run([scoreAll,tf.shape(scoreAll)]))
+        print(sess.run([tf.log(tf.sigmoid(-scoreAll))]))

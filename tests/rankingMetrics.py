@@ -26,9 +26,9 @@ if __name__ == "__main__":
     eval10 = Metrics.MeanReciprocalRank(scores, trueItems5, k=3)
 
     with tf.Session() as sess:
-        print sess.run([eval1,eval2,eval3,eval4])
-        print sess.run([eval5])
-        print sess.run([eval6,eval7,eval8,eval9])
-        print sess.run([eval10])
+        print( sess.run([eval1,eval2,eval3,eval4]))
+        print(sess.run([eval5]))
+        print( sess.run([eval6,eval7,eval8,eval9]))
+        print(sess.run([eval10]))
 
 

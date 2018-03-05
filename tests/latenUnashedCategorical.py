@@ -28,14 +28,14 @@ latentLayer2bis = lcat2.getLatentLayer(look2,withLookup=False)
 with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
     sess.run(tf.tables_initializer())
-    print sess.run([look1])
-    print sess.run([invlook1])
-    print sess.run([latentLayer1])
-    print sess.run([latentLayer1bis])
-    print sess.run([look2])
-    print sess.run([invlook2])
-    print sess.run([latentLayer2])
-    print sess.run([latentLayer2bis])
-    print Lcat.numInstances
+    print( sess.run([look1]))
+    print (sess.run([invlook1]))
+    print (sess.run([latentLayer1]))
+    print (sess.run([latentLayer1bis]))
+    print (sess.run([look2]))
+    print (sess.run([invlook2]))
+    print (sess.run([latentLayer2]))
+    print (sess.run([latentLayer2bis]))
+    print (Lcat.numInstances)
 
 

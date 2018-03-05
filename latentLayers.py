@@ -14,7 +14,7 @@ class latentUnashedCategorical:
         latentUnashedCategorical.numInstances += 1
         # lookup Table
         self.lookupDataFrame = pd.DataFrame({"categorical_values" : categorical_values,
-                                        "new_indices" : np.array(xrange(len(categorical_values)))
+                                        "new_indices" : np.array(range(len(categorical_values)))
                                         })
         # position of default index
         self.default_index = default_index

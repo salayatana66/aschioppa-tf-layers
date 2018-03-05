@@ -13,5 +13,5 @@ if __name__ == "__main__":
     myNegLayer = myNeg.getSamplingLayer(inputIds)
 
     with tf.Session() as sess:
-        print sess.run([inputIds])
-        print sess.run([myNegLayer])
+        print( sess.run([inputIds]))
+        print (sess.run([myNegLayer]))

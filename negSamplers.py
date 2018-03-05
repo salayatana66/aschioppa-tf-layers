@@ -13,7 +13,7 @@ class NegSampler:
     """
     def __init__(self,num_sampled,keys,weights=None,seed=0):
         if weights is None:
-            weights = np.cumsum([1 for _ in xrange(len(keys))])
+            weights = np.cumsum([1 for _ in range(len(keys))])
         # 1st row keys, 2nd probs for sampling
         self.sampleDict = tf.constant(np.array([keys,weights]),dtype=tf.int64)
         # the maximal value for weights
