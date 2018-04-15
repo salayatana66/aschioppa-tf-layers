@@ -2,10 +2,18 @@ import tensorflow as tf
 import numpy as np
 import pandas as pd
 
+"""
+Implements Latent Empeddings for Categorical Features
+Essentially a version of looking up embeddings on steroids
+Which allows to directly feed the categorical features
+"""
 class latentUnashedCategorical:
     # static counter
     numInstances = 0
 
+    """
+    Set prior_weights = array to initialize the embedding
+    """
     def __init__(self,categorical_values,
                  default_index,
                  key_type,
@@ -14,7 +22,7 @@ class latentUnashedCategorical:
         latentUnashedCategorical.numInstances += 1
         # lookup Table
         self.lookupDataFrame = pd.DataFrame({"categorical_values" : categorical_values,
-                                        "new_indices" : np.array(range(len(categorical_values)))
+        "new_indices" : np.array(range(len(categorical_values)))
                                         })
         # position of default index
         self.default_index = default_index
@@ -54,12 +62,18 @@ class latentUnashedCategorical:
                                                dtype=tf.float64)
 
 
+    """ These are just lookup and inverse lookups"""        
     def getLookupLayer(self, inputTensor):
         return self.lookupTable.lookup(inputTensor)
-
+    
+    """ These are just lookup and inverse lookups"""
     def getInverseLookupLayer(self, inputTensor):
         return self.inverseLookupTable.lookup(inputTensor)
 
+    """ This is the latent layer
+    Set Lookup=False to directly feed the numerically encoded 
+    features
+    """
     def getLatentLayer(self, inputTensor, withLookup = True):
         if withLookup:
             return tf.nn.embedding_lookup(self.weights, self.lookupTable.lookup(inputTensor))
