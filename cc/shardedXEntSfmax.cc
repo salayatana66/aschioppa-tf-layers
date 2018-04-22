@@ -2,6 +2,7 @@
 #include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/platform/default/logging.h"
 #include "tensorflow/core/framework/shape_inference.h"
+#include <iostream>
 
 using namespace tensorflow;
 
@@ -64,46 +65,45 @@ public:
     const auto& labvec = labels.vec<int>();
     const auto& invec = inputs.matrix<float>();
     for(int ib = 0; ib < inputs.dim_size(0); ib++) {
-      int i_start = lvec(ib);
-      int i_width = uvec(ib)-lvec(ib);
-      TensorShape* scratch_shape = new TensorShape;
-      scratch_shape->AddDim(i_width);
-      Tensor* scratch = new Tensor(DT_FLOAT, *scratch_shape);
-      auto scratch_vec = scratch->vec<float>();
-      // initialize everything to 0 values... is it necessary?
-      for(int j = 0; j < i_width; j++) {
-	scratch_vec(j) = 0;
-	// dot product with the invec
-	for(int l = 0; l < inputs.dim_size(1); ++l) {
-	  scratch_vec(j) += invec(ib,l)*wmat(l,j+i_start);
-	}
-	// add the biases
-	scratch_vec(j) += biasvec(j+i_start);
-      }
-      // for numerical stability we need to sutract the maximum from the logits
-      auto maxCoeff = scratch_vec(0);
-      for(int l = 0; l < inputs.dim_size(1); ++l) {
-	if(maxCoeff > scratch_vec(l)) maxCoeff == scratch_vec(l);
-      }
-      for(int l = 0; l < inputs.dim_size(1); ++l)
-	scratch_vec(l) -= maxCoeff; 
+      // size of slice
+      int slice_size = uvec(ib)-lvec(ib)+1;
+      // for the product of inputs & wmat
+      Eigen::array<Eigen::IndexPair<int>, 1> product_dims = { Eigen::IndexPair<int>(1, 0) };
+      // to slice the inputs to row ib
+      Eigen::array<int,2> offsets_invec = {ib,0};
+      Eigen::array<int,2> extents_invec = {1,invec.dimensions()[1]};
+      // to slice wmat on the set of valid labels
+      Eigen::array<int,2> offsets_wmat = {0,lvec(ib)};
+      Eigen::array<int,2> extents_wmat = {wmat.dimensions()[0],slice_size};
+      // to slice the biasvec
+      Eigen::array<int,1> offsets_bias = {lvec(ib)};
+      Eigen::array<int,1> extents_bias = {slice_size};
+      // to write the scratch result
+      //auto  scratch = new Eigen::Tensor<float, 1,Eigen::RowMajor>(slice_size);
+      auto  scratch = new Eigen::Tensor<float, 1,Eigen::RowMajor>();
+      // evaluate the logits
+      auto scratch_op0 = (invec.slice(offsets_invec,extents_invec))
+	      .contract(wmat.slice(offsets_wmat, extents_wmat),product_dims)
+	      .reshape(extents_bias) + biasvec.slice(offsets_bias,extents_bias);
+      // subtract maximum from logits
+      // first compute maximum, before broadcasting need to reshape scalar to a vec
+      auto scratch_op1 = (scratch_op0.maximum().reshape(Eigen::array<int,1>{1}))
+      .broadcast(extents_bias);
+      auto scratch_op2 = scratch_op0 - scratch_op1;
+      // take the exponential
+      auto scratch_op3 = scratch_op2.exp();
+      // take sum of exponential
+      auto scratch_op4 = scratch_op3.sum().reshape(Eigen::array<int,1>{1}).broadcast(extents_bias);
+      auto scratch_op5 = scratch_op3/scratch_op4;
+      // this prompts the actual evaluation
+      *scratch = scratch_op5;
 
-      Tensor* exp_scratch = new Tensor(DT_FLOAT, *scratch_shape);
-      auto exp_scratch_vec = exp_scratch->vec<float>();
-      exp_scratch_vec = scratch_vec.exp();
-      auto denom = exp_scratch_vec(0);
-      for(int l = 1; l<inputs.dim_size(1); ++l)
-	denom += exp_scratch_vec(l);
-      for(int l =0; l<inputs.dim_size(1); ++l)
-	exp_scratch_vec(l) = exp_scratch_vec(l)/denom;
-      batch_loss_vec(ib) = exp_scratch_vec(labvec(ib)-i_start);
+      batch_loss_vec(ib) = scratch->operator()(labvec(ib)-lvec(ib));
       
-      
-      delete exp_scratch;
       delete scratch;
-      delete scratch_shape; 
+   
   }
-    //batch_loss_vec = batch_loss_vec.log();
+      batch_loss_vec = -batch_loss_vec.log();
   }
 };
 
