@@ -3,7 +3,7 @@ import numpy as np
 import sys
 import time
 sXfmax_mod = tf.load_op_library("/home/aschioppa/persistent-disk/aschioppa_tf_layers/cc/shardedXEntSfmax.so")
-sXfmax = sXfmax_mod.sharded_xent_sfmax
+sXfmax = sXfmax_mod.sharded_xent_sfmax_no_grad
 def loss(label,logits):
     _max = np.max(logits)
     _lg = logits-_max
