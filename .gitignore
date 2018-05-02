@@ -1,2 +1,7 @@
 *.pyc
 *~
+tensorflow/
+*GTAGS
+*GPATH
+*GRTAGS
+*GSYMS

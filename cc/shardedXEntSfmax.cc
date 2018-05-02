@@ -15,10 +15,10 @@ REGISTER_OP("ShardedXentSfmaxNoGrad")
 .Input("labels: int32")
 .Output("batch_loss: float32");
 
-
-class ShardedXentSfmaxOpNoGrad : public OpKernel {
+class ShardedXentSfmaxNoGradOp : public OpKernel {
 public:
-  explicit ShardedXentSfmaxOpNoGrad(OpKernelConstruction* ctx)
+  
+  explicit ShardedXentSfmaxNoGradOp(OpKernelConstruction* ctx)
     : OpKernel(ctx) { }
 
   void Compute(OpKernelContext* ctx) override {
@@ -107,8 +107,8 @@ public:
   }
 };
 
-REGISTER_KERNEL_BUILDER(Name("ShardedXentSfmaxNoGrad").Device(DEVICE_CPU), ShardedXentSfmaxOpNoGrad);
-      
+REGISTER_KERNEL_BUILDER(Name("ShardedXentSfmaxNoGrad").Device(DEVICE_CPU), ShardedXentSfmaxNoGradOp);
+
 REGISTER_OP("ShardedXentSfmax")
 .Input("inputs: float32")
 .Input("weights: float32")
@@ -119,7 +119,9 @@ REGISTER_OP("ShardedXentSfmax")
 .Output("batch_loss: float32")
 .Output("grad_inputs: float32")
 .Output("grad_weights_indices: int32")
-.Output("grad_weights_values: float32");
+.Output("grad_weights_values: float32")
+.Output("grad_biases_indices: int32")
+.Output("grad_biases_values: float32");
 
 class ShardedXentSfmaxOp : public OpKernel {
 public:
@@ -168,14 +170,13 @@ public:
 					  &grad_inputs));
 
     // get references to inputs
-    auto batch_loss_vec = batch_loss->vec<float>();
+
     const auto& lvec = lower_bound.vec<int>();
     const auto& uvec = upper_bound.vec<int>();
     const auto& wmat = weights.matrix<float>();
     const auto& biasvec = biases.vec<float>();
     const auto& labvec = labels.vec<int>();
     const auto& invec = inputs.matrix<float>();
-
     // compute how big the sparse gradients will be
     int weights_grad_size = 0;
     int biases_grad_size = 0;
@@ -193,10 +194,23 @@ public:
     // allocate the output for the gradient wrt to the weights (this update is sparse!!)
     OP_REQUIRES_OK(ctx, ctx->allocate_output(3, TensorShape({weights_grad_size}),
 					  &grad_weights_values));
-    
-    
-    
-    
+
+    Tensor* grad_biases_indices = NULL;
+    // allocate the output for the gradient wrt to the biases (this update is sparse !!)
+    OP_REQUIRES_OK(ctx, ctx->allocate_output(4, TensorShape({biases_grad_size,2}), &grad_biases_indices));
+    Tensor* grad_biases_values = NULL;
+    OP_REQUIRES_OK(ctx, ctx->allocate_output(5, TensorShape({biases_grad_size}), &grad_biases_values));
+
+    // get reference to outputs
+    auto batch_loss_vec = batch_loss->vec<float>();
+    auto grad_inputs_mat = grad_inputs->matrix<float>();
+    auto grad_biases_indices_mat = grad_biases_indices->matrix<int>();
+    auto grad_biases_values_vec = grad_biases_values->vec<float>();
+    auto grad_weights_indices_mat = grad_weights_indices->matrix<int>();
+    auto grad_weights_values_vec = grad_weights_values->vec<float>();
+    // instantiate counters for the indices of gradients wrt to weights & biases
+    int iwg =0;
+    int bwg = 0;
     for(int ib = 0; ib < inputs.dim_size(0); ib++) {
       // size of slice
       int slice_size = uvec(ib)-lvec(ib)+1;
@@ -229,23 +243,56 @@ public:
       auto scratch_op4 = scratch_op3.sum().reshape(Eigen::array<int,1>{1}).broadcast(extents_bias);
       auto scratch_op5 = scratch_op3/scratch_op4;
       // this prompts the actual evaluation
+      // scratch holds the probabilities for the different classes
       *scratch = scratch_op5;
 
+      // remember that we still need to take the logarithm for the loss
       batch_loss_vec(ib) = scratch->operator()(labvec(ib)-lvec(ib));
+
+      // allocate for the gradient of the probability wrt. to the scores
+      auto pgrad = new Eigen::Tensor<float,1,Eigen::RowMajor>(slice_size);
+      for(int c0 = 0; c0 < slice_size; c0++) 
+	pgrad->operator()(c0) = -scratch->operator()(c0) * scratch->operator()(labvec(ib)-lvec(ib));
+      pgrad->operator()(labvec(ib)-lvec(ib)) += scratch->operator()(labvec(ib)-lvec(ib));
+      auto igrad = new Eigen::Tensor<float,1,Eigen::RowMajor>(inputs.dim_size(1));
+      *igrad = wmat.slice(offsets_wmat, extents_wmat).contract(*pgrad,product_dims);
+
+      for(int a0 = 0; a0 < inputs.dim_size(1); a0++) {
+	grad_inputs_mat(ib,a0) = -1.0/scratch->operator()(labvec(ib)-lvec(ib))*igrad->operator()(a0);
+	//std::cout << igrad->operator()(a0) << std::endl;
+      }
+      for(int c0 = 0; c0 < slice_size; c0++) {
+	//std::cout << typeid(grad_biases_indices_mat).name() << std::cout;
+	grad_biases_indices_mat(bwg, 0) = ib;
+	grad_biases_indices_mat(bwg, 1) = c0;
+	grad_biases_values_vec(bwg) = -1.0/scratch->operator()(labvec(ib)-lvec(ib)) * (pgrad->operator()(c0));
+	bwg++;
+      }
+
+      for(int a0 = 0; a0 < inputs.dim_size(1); a0++) {
+	for(int c0 = 0; c0 < slice_size; c0++) {
+	  //std::cout << iwg << "|" << ib << "|" << a0 << "|" << c0 << std::endl;
+	  //std::cout << ib;
+	  grad_weights_indices_mat(iwg, 0) = ib;
+	  grad_weights_indices_mat(iwg, 1) = a0;
+	  grad_weights_indices_mat(iwg, 2) = c0+lvec(ib);
+          grad_weights_values_vec(iwg) = -1.0/scratch->operator()(labvec(ib)-lvec(ib))
+	   * (pgrad->operator()(c0)) *
+	  invec(ib,a0);
+	  iwg++;
+	}
+      }
       
+      // free resources
       delete scratch;
+      delete pgrad;
+      delete igrad;
    
   }
+    // remember to take the logarithm to get the loss
       batch_loss_vec = -batch_loss_vec.log();
   }
 };
 
 REGISTER_KERNEL_BUILDER(Name("ShardedXentSfmax").Device(DEVICE_CPU), ShardedXentSfmaxOp);
-      
-
-
-      
-      
-    
-    
 
