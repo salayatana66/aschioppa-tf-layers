@@ -264,7 +264,7 @@ public:
       for(int c0 = 0; c0 < slice_size; c0++) {
 	//std::cout << typeid(grad_biases_indices_mat).name() << std::cout;
 	grad_biases_indices_mat(bwg, 0) = ib;
-	grad_biases_indices_mat(bwg, 1) = c0;
+	grad_biases_indices_mat(bwg, 1) = c0+lvec(ib);
 	grad_biases_values_vec(bwg) = -1.0/scratch->operator()(labvec(ib)-lvec(ib)) * (pgrad->operator()(c0));
 	bwg++;
       }
