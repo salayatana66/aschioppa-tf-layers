@@ -3,6 +3,8 @@
 #include "tensorflow/core/platform/default/logging.h"
 #include "tensorflow/core/framework/shape_inference.h"
 #include <iostream>
+#include <utility>
+#include <map>
 
 using namespace tensorflow;
 
@@ -296,3 +298,123 @@ public:
 
 REGISTER_KERNEL_BUILDER(Name("ShardedXentSfmax").Device(DEVICE_CPU), ShardedXentSfmaxOp);
 
+REGISTER_OP("ShardedXentSfmaxHelperGrad")
+.Input("in_grad_loss: float32")
+.Input("in_grad_inputs: float32")
+.Input("in_grad_weights_indices: int32")
+.Input("in_grad_weights_values: float32")
+.Input("in_grad_biases_indices: int32")
+.Input("in_grad_biases_values: float32")
+.Output("out_grad_inputs: float32")
+.Output("out_grad_weights_indices: int32")
+.Output("out_grad_weights_values: float32")
+.Output("out_grad_biases_indices: int32")
+.Output("out_grad_biases_values: float32");
+
+class ShardedXentSfmaxHelperGradOp : public OpKernel {
+public:
+  explicit ShardedXentSfmaxHelperGradOp(OpKernelConstruction* ctx)
+    : OpKernel(ctx) { }
+
+  void Compute(OpKernelContext* ctx) override {
+    const Tensor& inGradLoss = ctx->input(0);
+    const Tensor& inGradInputs= ctx->input(1);
+    const Tensor& inGradWI= ctx->input(2);
+    const Tensor& inGradWV = ctx->input(3);
+    const Tensor& inGradBI = ctx->input(4);
+    const Tensor& inGradBV = ctx->input(5);
+
+    OP_REQUIRES(ctx, TensorShapeUtils::IsVector(inGradLoss.shape()),
+		errors::InvalidArgument("Gradient of shardedXEntSfmax : \
+                                         incoming loss gradient is not a vector"));
+    
+    /* Shall I put a check?
+     For sparse updates seems problematic
+  OP_REQUIRES(ctx, (inGradLoss.dim_size(0) == inGradInputs.dim_size(0)) &
+		(inGradLoss.dim_size(0) == inGradWI.dim_size(0)) &
+		(inGradLoss.dim_size(0) == inGradWV.dim_size(0)) &
+		(inGradLoss.dim_size(0) == inGradBI.dim_size(0)) &
+		(inGradLoss.dim_size(0) == inGradBV.dim_size(0)),
+		errors::InvalidArgument("Gradient of shardedXEntSfmax: \
+		tensors don't have the same size on the batch")); */
+
+    Tensor* out_grad_inputs = NULL;
+    OP_REQUIRES_OK(ctx, ctx->allocate_output(0, TensorShape({inGradInputs.dim_size(1)})
+					     , &out_grad_inputs));
+
+    // get references to inputs
+    const auto& inGradLossVec = inGradLoss.vec<float>();
+    const auto& inGradInputsMat = inGradInputs.matrix<float>();
+    const auto& inGradWIMat = inGradWI.matrix<int>();
+    const auto& inGradWVVec = inGradWV.vec<float>();
+    const auto& inGradBIMat = inGradBI.matrix<int>();
+    const auto& inGradBVVec = inGradBV.vec<float>();
+    // the output gradient wrt to the inputs
+    auto out_grad_inputs_vec = out_grad_inputs->vec<float>();
+    
+    Eigen::array<Eigen::IndexPair<int>, 1> product_dims = { Eigen::IndexPair<int>(0, 0) };
+    out_grad_inputs_vec = inGradLossVec.contract(inGradInputsMat, product_dims);
+
+    // the output gradient with respect to the weights
+    // by default map constructor does the right thing with
+    // pairs of integers unseen: the float is automatically initialized at 0
+    std::map<std::pair<int,int>,float> WMap;
+    // product of sparse & dense using a map
+    for(int i = 0; i < inGradWI.dim_size(0); ++i) {
+      WMap[std::make_pair(inGradWIMat(i,1), inGradWIMat(i,2))] +=
+	inGradLossVec(inGradWIMat(i,0))*inGradWVVec(i);
+    }
+    
+    
+    Tensor* out_grad_weights_indices = NULL;
+    OP_REQUIRES_OK(ctx, ctx->allocate_output(1, TensorShape({WMap.size(),2})
+					     , &out_grad_weights_indices));
+    Tensor* out_grad_weights_values = NULL;
+    OP_REQUIRES_OK(ctx, ctx->allocate_output(2, TensorShape({WMap.size()})
+					     , &out_grad_weights_values));
+    auto out_grad_weight_indices_mat = out_grad_weights_indices->matrix<int>();
+    auto out_grad_weights_values_vec = out_grad_weights_values->vec<float>();
+    // to transverse along with the map
+    int wib = 0;
+    for(auto it = WMap.cbegin(); it != WMap.cend(); ++it) {
+      out_grad_weight_indices_mat(wib,0) = it->first.first;
+      out_grad_weight_indices_mat(wib,1) = it->first.second;
+      out_grad_weights_values_vec(wib) = it->second;
+      wib++;
+    }
+
+    // the output gradient with respect to the weights
+    // by default map constructor does the right thing with
+    // pairs of integers unseen: the float is automatically initialized at 0
+    std::map<int,float> BMap;
+    // product of sparse & dense using a map
+    for(int i = 0; i < inGradBI.dim_size(0); ++i) {
+      BMap[inGradBIMat(i,1)] += inGradLossVec(inGradBIMat(i,0))*inGradBVVec(i);
+    }
+
+    Tensor* out_grad_bias_indices = NULL;
+    OP_REQUIRES_OK(ctx, ctx->allocate_output(3, TensorShape({BMap.size(),1})
+					     , &out_grad_bias_indices));
+
+    Tensor* out_grad_bias_values = NULL;
+    OP_REQUIRES_OK(ctx, ctx->allocate_output(4, TensorShape({BMap.size()})
+					     , &out_grad_bias_values));
+    auto out_grad_bias_indices_mat = out_grad_bias_indices->matrix<int>();
+    auto out_grad_bias_values_vec = out_grad_bias_values->vec<float>();
+    
+    // to transverse along with the map
+    int bib = 0;
+    for(auto it = BMap.cbegin(); it != BMap.cend(); ++it) {
+      out_grad_bias_indices_mat(bib,0) = it->first;
+      out_grad_bias_values_vec(bib) = it->second;
+      bib++;
+      }
+
+
+  }
+};
+
+REGISTER_KERNEL_BUILDER(Name("ShardedXentSfmaxHelperGrad").Device(DEVICE_CPU),
+			ShardedXentSfmaxHelperGradOp);
+
+		
