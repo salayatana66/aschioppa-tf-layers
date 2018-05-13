@@ -339,7 +339,8 @@ public:
 		tensors don't have the same size on the batch")); */
 
     Tensor* out_grad_inputs = NULL;
-    OP_REQUIRES_OK(ctx, ctx->allocate_output(0, TensorShape({inGradInputs.dim_size(1)})
+    OP_REQUIRES_OK(ctx, ctx->allocate_output(0, TensorShape({inGradInputs.dim_size(0),
+	      inGradInputs.dim_size(1)})
 					     , &out_grad_inputs));
 
     // get references to inputs
@@ -350,11 +351,14 @@ public:
     const auto& inGradBIMat = inGradBI.matrix<int>();
     const auto& inGradBVVec = inGradBV.vec<float>();
     // the output gradient wrt to the inputs
-    auto out_grad_inputs_vec = out_grad_inputs->vec<float>();
-    
+    auto out_grad_inputs_mat = out_grad_inputs->matrix<float>();
+    /*
     Eigen::array<Eigen::IndexPair<int>, 1> product_dims = { Eigen::IndexPair<int>(0, 0) };
     out_grad_inputs_vec = inGradLossVec.contract(inGradInputsMat, product_dims);
-
+    */
+    Eigen::array<int, 2> bcast({1, inGradInputs.dim_size(1)});
+    out_grad_inputs_mat = inGradLossVec.reshape(Eigen::array<int,2>{inGradLoss.dim_size(0),
+    	  1}).broadcast(bcast) * inGradInputsMat;
     // the output gradient with respect to the weights
     // by default map constructor does the right thing with
     // pairs of integers unseen: the float is automatically initialized at 0

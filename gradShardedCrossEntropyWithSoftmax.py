@@ -49,7 +49,7 @@ if __name__ == "__main__":
         sess.run(tf.global_variables_initializer())
         #dI = sess.run(math_ops.matmul(array_ops.reshape(tGl,[1,-1]),out[1]))
         myOut = sess.run(out)
-        print("Python: ", gL.reshape([1,-1]).dot(myOut[1]))
+        print("Python: ", gL.reshape([-1,1])*myOut[1])
         myGrads = sess.run(sXGhelper(tGl,out[1],out[2],out[3],out[4],out[5]))
         print("C++: ", myGrads[0])
         print("Python: ", np.tensordot(gL,
