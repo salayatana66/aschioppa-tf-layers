@@ -11,6 +11,7 @@ sXGhelper = sXfmax_mod.sharded_xent_sfmax_helper_grad
 @ops.RegisterGradient("ShardedXentSfmax")
 def _sharded_xent_sfmax_grad(op, grad):
     loss_grad = grad[0]
+    myGrads = sXGhelper(grad[0],op[1],op[2],op[3],op[4],op[5]))
     # do we need the reshape?
     gradI = math_ops.matmul(array_ops.reshape(loss_grad,[1,-1]),
                             op.outputs[1])

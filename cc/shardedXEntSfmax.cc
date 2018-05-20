@@ -48,9 +48,9 @@ public:
 		(upper_bound.dim_size(0) == inputs.dim_size(0)),
 		errors::InvalidArgument("shardedXEntSfmaxNoGrad: inputs (i.e. batch), labels, lower & upper Bounds must have same length")
 		);
-    OP_REQUIRES(ctx, (weights.dim_size(1) == biases.dim_size(0)),
+    OP_REQUIRES(ctx, (weights.dim_size(0) == biases.dim_size(0)),
 		errors::InvalidArgument("shardedXEntSfmaxNoGrad: weights & biases have incompatible dimensions"));
-    OP_REQUIRES(ctx, (inputs.dim_size(1) == weights.dim_size(0)),
+    OP_REQUIRES(ctx, (inputs.dim_size(1) == weights.dim_size(1)),
 		errors::InvalidArgument("shardedXEntSfmaxNoGrad: inputs & weights have incompatible dimensions"));
 
     TensorShape batch_loss_shape;
@@ -70,18 +70,17 @@ public:
       // size of slice
       int slice_size = uvec(ib)-lvec(ib)+1;
       // for the product of inputs & wmat
-      Eigen::array<Eigen::IndexPair<int>, 1> product_dims = { Eigen::IndexPair<int>(1, 0) };
+      Eigen::array<Eigen::IndexPair<int>, 1> product_dims = { Eigen::IndexPair<int>(1, 1) };
       // to slice the inputs to row ib
       Eigen::array<int,2> offsets_invec = {ib,0};
       Eigen::array<int,2> extents_invec = {1,invec.dimensions()[1]};
       // to slice wmat on the set of valid labels
-      Eigen::array<int,2> offsets_wmat = {0,lvec(ib)};
-      Eigen::array<int,2> extents_wmat = {wmat.dimensions()[0],slice_size};
+      Eigen::array<int,2> offsets_wmat = {lvec(ib),0};
+      Eigen::array<int,2> extents_wmat = {slice_size,wmat.dimensions()[1]};
       // to slice the biasvec
       Eigen::array<int,1> offsets_bias = {lvec(ib)};
       Eigen::array<int,1> extents_bias = {slice_size};
       // to write the scratch result
-      //auto  scratch = new Eigen::Tensor<float, 1,Eigen::RowMajor>(slice_size);
       auto  scratch = new Eigen::Tensor<float, 1,Eigen::RowMajor>();
       // evaluate the logits
       auto scratch_op0 = (invec.slice(offsets_invec,extents_invec))
@@ -155,9 +154,9 @@ public:
 		(upper_bound.dim_size(0) == inputs.dim_size(0)),
 		errors::InvalidArgument("shardedXEntSfmax: inputs (i.e. batch), labels, lower & upper Bounds must have same length")
 		);
-    OP_REQUIRES(ctx, (weights.dim_size(1) == biases.dim_size(0)),
+    OP_REQUIRES(ctx, (weights.dim_size(0) == biases.dim_size(0)),
 		errors::InvalidArgument("shardedXEntSfmax: weights & biases have incompatible dimensions"));
-    OP_REQUIRES(ctx, (inputs.dim_size(1) == weights.dim_size(0)),
+    OP_REQUIRES(ctx, (inputs.dim_size(1) == weights.dim_size(1)),
 		errors::InvalidArgument("shardedXEntSfmax: inputs & weights have incompatible dimensions"));
 
     TensorShape batch_loss_shape;
@@ -180,50 +179,54 @@ public:
     const auto& labvec = labels.vec<int>();
     const auto& invec = inputs.matrix<float>();
     // compute how big the sparse gradients will be
-    int weights_grad_size = 0;
+    int weights_index_grad_size = 0;
+    int weights_values_grad_size = 0;
     int biases_grad_size = 0;
     for(int ib = 0; ib < inputs.dim_size(0); ib++) {
       int slice_size = uvec(ib)-lvec(ib)+1;
       biases_grad_size += slice_size;
-      weights_grad_size += (int)inputs.dim_size(1)*slice_size;
+      weights_index_grad_size += (int)inputs.dim_size(1)*slice_size;
+      weights_values_grad_size += slice_size;
     }
     
     Tensor* grad_weights_indices = NULL;
     // allocate the output for the gradient wrt to the weights (this update is sparse!!)
-    OP_REQUIRES_OK(ctx, ctx->allocate_output(2, TensorShape({weights_grad_size,3}),
+    OP_REQUIRES_OK(ctx, ctx->allocate_output(2, TensorShape({weights_index_grad_size}),
 					  &grad_weights_indices));
     Tensor* grad_weights_values = NULL;
     // allocate the output for the gradient wrt to the weights (this update is sparse!!)
-    OP_REQUIRES_OK(ctx, ctx->allocate_output(3, TensorShape({weights_grad_size}),
+    OP_REQUIRES_OK(ctx, ctx->allocate_output(3, TensorShape({weights_values_grad_size,
+	      inputs.dim_size(1),inputs.dim_size(0)}),
 					  &grad_weights_values));
 
     Tensor* grad_biases_indices = NULL;
     // allocate the output for the gradient wrt to the biases (this update is sparse !!)
-    OP_REQUIRES_OK(ctx, ctx->allocate_output(4, TensorShape({biases_grad_size,2}), &grad_biases_indices));
+    OP_REQUIRES_OK(ctx, ctx->allocate_output(4, TensorShape({biases_grad_size}), &grad_biases_indices));
     Tensor* grad_biases_values = NULL;
-    OP_REQUIRES_OK(ctx, ctx->allocate_output(5, TensorShape({biases_grad_size}), &grad_biases_values));
+    OP_REQUIRES_OK(ctx, ctx->allocate_output(5, TensorShape({biases_grad_size,inputs.dim_size(0)}), &grad_biases_values));
 
     // get reference to outputs
     auto batch_loss_vec = batch_loss->vec<float>();
     auto grad_inputs_mat = grad_inputs->matrix<float>();
-    auto grad_biases_indices_mat = grad_biases_indices->matrix<int>();
-    auto grad_biases_values_vec = grad_biases_values->vec<float>();
-    auto grad_weights_indices_mat = grad_weights_indices->matrix<int>();
-    auto grad_weights_values_vec = grad_weights_values->vec<float>();
+    auto grad_biases_indices_vec = grad_biases_indices->vec<int>();
+    auto grad_biases_values_mat = grad_biases_values->matrix<float>();
+    auto grad_weights_indices_vec = grad_weights_indices->vec<int>();
+    auto grad_weights_values_mat = grad_weights_values->matrix<float>();
     // instantiate counters for the indices of gradients wrt to weights & biases
     int iwg =0;
+    int ivwg =0;
     int bwg = 0;
     for(int ib = 0; ib < inputs.dim_size(0); ib++) {
       // size of slice
       int slice_size = uvec(ib)-lvec(ib)+1;
       // for the product of inputs & wmat
-      Eigen::array<Eigen::IndexPair<int>, 1> product_dims = { Eigen::IndexPair<int>(1, 0) };
+      Eigen::array<Eigen::IndexPair<int>, 1> product_dims = { Eigen::IndexPair<int>(1, 1) };
       // to slice the inputs to row ib
       Eigen::array<int,2> offsets_invec = {ib,0};
       Eigen::array<int,2> extents_invec = {1,invec.dimensions()[1]};
       // to slice wmat on the set of valid labels
-      Eigen::array<int,2> offsets_wmat = {0,lvec(ib)};
-      Eigen::array<int,2> extents_wmat = {wmat.dimensions()[0],slice_size};
+      Eigen::array<int,2> offsets_wmat = {lvec(ib),0};
+      Eigen::array<int,2> extents_wmat = {slice_size,wmat.dimensions()[0]};
       // to slice the biasvec
       Eigen::array<int,1> offsets_bias = {lvec(ib)};
       Eigen::array<int,1> extents_bias = {slice_size};
@@ -257,32 +260,27 @@ public:
 	pgrad->operator()(c0) = -scratch->operator()(c0) * scratch->operator()(labvec(ib)-lvec(ib));
       pgrad->operator()(labvec(ib)-lvec(ib)) += scratch->operator()(labvec(ib)-lvec(ib));
       auto igrad = new Eigen::Tensor<float,1,Eigen::RowMajor>(inputs.dim_size(1));
+      Eigen::array<Eigen::IndexPair<int>, 1> product_dims_igrad = { Eigen::IndexPair<int>(0, 0) };
       *igrad = wmat.slice(offsets_wmat, extents_wmat).contract(*pgrad,product_dims);
 
       for(int a0 = 0; a0 < inputs.dim_size(1); a0++) {
 	grad_inputs_mat(ib,a0) = -1.0/scratch->operator()(labvec(ib)-lvec(ib))*igrad->operator()(a0);
-	//std::cout << igrad->operator()(a0) << std::endl;
       }
       for(int c0 = 0; c0 < slice_size; c0++) {
-	//std::cout << typeid(grad_biases_indices_mat).name() << std::cout;
-	grad_biases_indices_mat(bwg, 0) = ib;
-	grad_biases_indices_mat(bwg, 1) = c0+lvec(ib);
-	grad_biases_values_vec(bwg) = -1.0/scratch->operator()(labvec(ib)-lvec(ib)) * (pgrad->operator()(c0));
+	grad_biases_indices_vec(bwg) = c0+lvec(ib);
+	grad_biases_values_mat(bwg,ib) = -1.0/scratch->operator()(labvec(ib)-lvec(ib)) * (pgrad->operator()(c0));
 	bwg++;
       }
 
+      for(int c0 = 0; c0 < slice_size; c0++) {
       for(int a0 = 0; a0 < inputs.dim_size(1); a0++) {
-	for(int c0 = 0; c0 < slice_size; c0++) {
-	  //std::cout << iwg << "|" << ib << "|" << a0 << "|" << c0 << std::endl;
-	  //std::cout << ib;
-	  grad_weights_indices_mat(iwg, 0) = ib;
-	  grad_weights_indices_mat(iwg, 1) = a0;
-	  grad_weights_indices_mat(iwg, 2) = c0+lvec(ib);
-          grad_weights_values_vec(iwg) = -1.0/scratch->operator()(labvec(ib)-lvec(ib))
+	  grad_weights_indices_vec(iwg) = c0+lvec(ib);
+          grad_weights_values_mat(ivwg,a0,ib) = -1.0/scratch->operator()(labvec(ib)-lvec(ib))
 	   * (pgrad->operator()(c0)) *
 	  invec(ib,a0);
 	  iwg++;
 	}
+      ivwg++;
       }
       
       // free resources

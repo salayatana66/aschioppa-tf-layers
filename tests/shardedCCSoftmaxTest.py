@@ -20,7 +20,7 @@ class Loss:
 
     # ib = index in the batch
     def pert_loss_W(self, x, il, iu, ll, ib, idWTup, pert):
-        tempW = W.copy()
+        tempW = self.W.copy()
         tempW[idWTup[0],idWTup[1]] += pert
         logits = x[ib,:].reshape((1,-1)).dot(tempW[:,il[ib] : (iu[ib]+1)].reshape((x.shape[1],-1))) + \
              self.b[il[ib] : (iu[ib]+1)].reshape((1,-1))
@@ -38,7 +38,7 @@ class Loss:
 
     # ib = index in the batch
     def pert_loss_b(self, x, il, iu, ll, ib, idb, pert):
-        tempB = b.copy()
+        tempB = self.b.copy()
         tempB[idb] += pert
         logits = x[ib,:].reshape((1,-1)).dot(self.W[:,il[ib] : (iu[ib]+1)].reshape((x.shape[1],-1))) + \
              tempB[il[ib] : (iu[ib]+1)].reshape((1,-1))
