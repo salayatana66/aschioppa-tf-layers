@@ -9,15 +9,18 @@ sXfmax = sXfmax_mod.sharded_xent_sfmax
 sXGhelper = sXfmax_mod.sharded_xent_sfmax_helper_grad
 
 @ops.RegisterGradient("ShardedXentSfmax")
-def _sharded_xent_sfmax_grad(op, grad):
-    loss_grad = grad[0]
-    myGrads = sXGhelper(grad[0],op[1],op[2],op[3],op[4],op[5])
-    # do we need the reshape?
-    gradI = math_ops.matmul(array_ops.reshape(loss_grad,[1,-1]),
-                            op.outputs[1])
-    gradW = None
-    gradB = None
-    return [gradI, gradW, gradB, None, None, None]
+def _sharded_xent_sfmax_grad(op, *grads):
+    loss_grad = grads[0]
+    myGrads = sXGhelper(loss_grad,op.outputs[1],op.outputs[2],op.outputs[3],
+                        op.outputs[4],op.outputs[5])
+    # shapes
+    Wshape = tf.shape(op.inputs[1])
+    bshape = tf.shape(op.inputs[2])
+    return [myGrads[0], tf.IndexedSlices(myGrads[2],
+                                         myGrads[1],Wshape),
+            tf.IndexedSlices(myGrads[4],
+                                         myGrads[3],bshape),
+            None,None,None]
 
 
 def indexSlicesDense(shape, indices, values):
@@ -58,20 +61,34 @@ if __name__ == "__main__":
     out = sXfmax(inputs,tW,tb,tlower,tupper,tlabels)
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        #dI = sess.run(math_ops.matmul(array_ops.reshape(tGl,[1,-1]),out[1]))
         myOut = sess.run(out)
-        print("Python: ", gL.reshape([-1,1])*myOut[1])
         myGrads = sess.run(sXGhelper(tGl,out[1],out[2],out[3],out[4],out[5]))
+        tfGrads = sess.run(tf.gradients(out[0],[inputs,tW,tb],tGl))
+        print("-"*32)
+        print("The input gradient with respect to the loss")
+        print("-"*32)
+        print("Python: ", gL.reshape([-1,1])*myOut[1])
+        print("The gradient with respect to the inputs")
+        print("-"*32)
+        print("Python: ", gL.reshape([-1,1])*myOut[1])
         print("C++: ", myGrads[0])
+        print("C++Grad: ", tfGrads[0])
+        print("-"*32)
+        print("The gradient with respect to the weights")
+        print("-"*32)
         print("Python: ", np.tensordot(gL,
                                        numpyDense((2,W.shape[0],W.shape[1]),
                                                   myOut[2],myOut[3])
                                        ,1))
         print("C++: ", 
               indexSlicesDense(W.T.shape,myGrads[1],myGrads[2]).T)
+        print("C++Grad: ", tfGrads[1])
+        print("-"*32)
+        print("The gradient with respect to the biases")
+        print("-"*32)
         print("Python: ", np.tensordot(gL,
                                        numpyDense((2,b.shape[0]),
                                                   myOut[4],myOut[5]),1))
         print("C++: ", 
         indexSlicesDense(b.shape,myGrads[3],myGrads[4]))
-
+        print("C++Grad: ", tfGrads[2])

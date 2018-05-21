@@ -74,6 +74,14 @@ class WeightedLoss:
                 out[ib,a0] = (loss_plus-loss_minus)/(2e-3)
         return out
 
+def indexSlicesDense(shape, indices, values):
+    out = np.zeros(shape)
+    for ii in range(indices.shape[0]):
+        if len(values.shape) > 1:
+            out[indices[ii],:] = values[ii,:]
+        else:
+            out[indices[ii]] = values[ii]
+    return out
 
 if __name__ == "__main__":
     print("="*32)
@@ -90,7 +98,7 @@ if __name__ == "__main__":
     labels = np.array([2,4])
     I = np.array([[1.0,1.0,1.0],[0.4,0.4,-1.0]])
     weights = np.array([2.3,4.5])
-    tW = tf.constant(W,dtype=tf.float32)
+    tW = tf.constant(W.T,dtype=tf.float32)
     tb = tf.constant(b,dtype=tf.float32)
     tlower = tf.constant(lower,dtype=tf.int32)
     tupper = tf.constant(upper,dtype=tf.int32)
@@ -106,9 +114,9 @@ if __name__ == "__main__":
         print("C++: ", np.tensordot(weights,myOut[0],1))
         print("Numpy: ", myLoss.loss_at((weights,I),lower,upper,labels))
         print("Numpy: ", myLoss.grad_loss_W((weights,I),lower,upper,labels))
-        print("C++: ", numpyDense(W.shape,myGrads[1],myGrads[2]))
+        print("C++: ", indexSlicesDense(W.T.shape,myGrads[1],myGrads[2]))
         print("C++: ", 
-        numpyDense(b.shape,myGrads[3],myGrads[4]))
+        indexSlicesDense(b.shape,myGrads[3],myGrads[4]))
         print("Numpy: ", myLoss.grad_loss_b((weights,I),lower,upper,labels))
         print("C++: ", myGrads[0])
         print("Numpy: ", myLoss.grad_loss_x((weights,I),lower,upper,labels))
