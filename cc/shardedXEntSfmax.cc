@@ -179,42 +179,40 @@ public:
     const auto& labvec = labels.vec<int>();
     const auto& invec = inputs.matrix<float>();
     // compute how big the sparse gradients will be
-    int weights_index_grad_size = 0;
-    int weights_values_grad_size = 0;
+    int weights_grad_size = 0;
     int biases_grad_size = 0;
     for(int ib = 0; ib < inputs.dim_size(0); ib++) {
       int slice_size = uvec(ib)-lvec(ib)+1;
       biases_grad_size += slice_size;
-      weights_index_grad_size += (int)inputs.dim_size(1)*slice_size;
-      weights_values_grad_size += slice_size;
+      weights_grad_size += (int)inputs.dim_size(1)*slice_size;
     }
     
     Tensor* grad_weights_indices = NULL;
     // allocate the output for the gradient wrt to the weights (this update is sparse!!)
-    OP_REQUIRES_OK(ctx, ctx->allocate_output(2, TensorShape({weights_index_grad_size}),
+    OP_REQUIRES_OK(ctx, ctx->allocate_output(2, TensorShape({weights_grad_size,3}),
 					  &grad_weights_indices));
     Tensor* grad_weights_values = NULL;
     // allocate the output for the gradient wrt to the weights (this update is sparse!!)
-    OP_REQUIRES_OK(ctx, ctx->allocate_output(3, TensorShape({weights_values_grad_size,
-	      inputs.dim_size(1),inputs.dim_size(0)}),
+    OP_REQUIRES_OK(ctx, ctx->allocate_output(3, TensorShape({weights_grad_size}),
 					  &grad_weights_values));
 
     Tensor* grad_biases_indices = NULL;
     // allocate the output for the gradient wrt to the biases (this update is sparse !!)
-    OP_REQUIRES_OK(ctx, ctx->allocate_output(4, TensorShape({biases_grad_size}), &grad_biases_indices));
+    OP_REQUIRES_OK(ctx, ctx->allocate_output(4, TensorShape({biases_grad_size,2}),
+					     &grad_biases_indices));
     Tensor* grad_biases_values = NULL;
-    OP_REQUIRES_OK(ctx, ctx->allocate_output(5, TensorShape({biases_grad_size,inputs.dim_size(0)}), &grad_biases_values));
+    OP_REQUIRES_OK(ctx, ctx->allocate_output(5, TensorShape({biases_grad_size}),
+					     &grad_biases_values));
 
     // get reference to outputs
     auto batch_loss_vec = batch_loss->vec<float>();
     auto grad_inputs_mat = grad_inputs->matrix<float>();
-    auto grad_biases_indices_vec = grad_biases_indices->vec<int>();
-    auto grad_biases_values_mat = grad_biases_values->matrix<float>();
-    auto grad_weights_indices_vec = grad_weights_indices->vec<int>();
-    auto grad_weights_values_mat = grad_weights_values->matrix<float>();
+    auto grad_biases_indices_mat = grad_biases_indices->matrix<int>();
+    auto grad_biases_values_vec = grad_biases_values->vec<float>();
+    auto grad_weights_indices_mat = grad_weights_indices->matrix<int>();
+    auto grad_weights_values_vec = grad_weights_values->vec<float>();
     // instantiate counters for the indices of gradients wrt to weights & biases
     int iwg =0;
-    int ivwg =0;
     int bwg = 0;
     for(int ib = 0; ib < inputs.dim_size(0); ib++) {
       // size of slice
@@ -226,7 +224,7 @@ public:
       Eigen::array<int,2> extents_invec = {1,invec.dimensions()[1]};
       // to slice wmat on the set of valid labels
       Eigen::array<int,2> offsets_wmat = {lvec(ib),0};
-      Eigen::array<int,2> extents_wmat = {slice_size,wmat.dimensions()[0]};
+      Eigen::array<int,2> extents_wmat = {slice_size,wmat.dimensions()[1]};
       // to slice the biasvec
       Eigen::array<int,1> offsets_bias = {lvec(ib)};
       Eigen::array<int,1> extents_bias = {slice_size};
@@ -261,26 +259,28 @@ public:
       pgrad->operator()(labvec(ib)-lvec(ib)) += scratch->operator()(labvec(ib)-lvec(ib));
       auto igrad = new Eigen::Tensor<float,1,Eigen::RowMajor>(inputs.dim_size(1));
       Eigen::array<Eigen::IndexPair<int>, 1> product_dims_igrad = { Eigen::IndexPair<int>(0, 0) };
-      *igrad = wmat.slice(offsets_wmat, extents_wmat).contract(*pgrad,product_dims);
+      *igrad = wmat.slice(offsets_wmat, extents_wmat).contract(*pgrad,product_dims_igrad);
 
       for(int a0 = 0; a0 < inputs.dim_size(1); a0++) {
 	grad_inputs_mat(ib,a0) = -1.0/scratch->operator()(labvec(ib)-lvec(ib))*igrad->operator()(a0);
       }
       for(int c0 = 0; c0 < slice_size; c0++) {
-	grad_biases_indices_vec(bwg) = c0+lvec(ib);
-	grad_biases_values_mat(bwg,ib) = -1.0/scratch->operator()(labvec(ib)-lvec(ib)) * (pgrad->operator()(c0));
+	grad_biases_indices_mat(bwg,0) = ib;
+	grad_biases_indices_mat(bwg,1) = c0+lvec(ib);
+	grad_biases_values_vec(bwg) = -1.0/scratch->operator()(labvec(ib)-lvec(ib)) * (pgrad->operator()(c0));
 	bwg++;
       }
 
-      for(int c0 = 0; c0 < slice_size; c0++) {
       for(int a0 = 0; a0 < inputs.dim_size(1); a0++) {
-	  grad_weights_indices_vec(iwg) = c0+lvec(ib);
-          grad_weights_values_mat(ivwg,a0,ib) = -1.0/scratch->operator()(labvec(ib)-lvec(ib))
+	for(int c0 = 0; c0 < slice_size; c0++) {
+	  grad_weights_indices_mat(iwg,0) = ib;
+	  grad_weights_indices_mat(iwg,1) = a0;
+	  grad_weights_indices_mat(iwg,2) = c0+lvec(ib);
+          grad_weights_values_vec(iwg) = -1.0/scratch->operator()(labvec(ib)-lvec(ib))
 	   * (pgrad->operator()(c0)) *
 	  invec(ib,a0);
 	  iwg++;
 	}
-      ivwg++;
       }
       
       // free resources
@@ -326,15 +326,6 @@ public:
 		errors::InvalidArgument("Gradient of shardedXEntSfmax : \
                                          incoming loss gradient is not a vector"));
     
-    /* Shall I put a check?
-     For sparse updates seems problematic
-  OP_REQUIRES(ctx, (inGradLoss.dim_size(0) == inGradInputs.dim_size(0)) &
-		(inGradLoss.dim_size(0) == inGradWI.dim_size(0)) &
-		(inGradLoss.dim_size(0) == inGradWV.dim_size(0)) &
-		(inGradLoss.dim_size(0) == inGradBI.dim_size(0)) &
-		(inGradLoss.dim_size(0) == inGradBV.dim_size(0)),
-		errors::InvalidArgument("Gradient of shardedXEntSfmax: \
-		tensors don't have the same size on the batch")); */
 
     Tensor* out_grad_inputs = NULL;
     OP_REQUIRES_OK(ctx, ctx->allocate_output(0, TensorShape({inGradInputs.dim_size(0),
@@ -360,28 +351,33 @@ public:
     // the output gradient with respect to the weights
     // by default map constructor does the right thing with
     // pairs of integers unseen: the float is automatically initialized at 0
+    // we also use a second map to store the distinct sparse indices that we see
     std::map<std::pair<int,int>,float> WMap;
+    std::map<int,int> distinctWMap;
     // product of sparse & dense using a map
     for(int i = 0; i < inGradWI.dim_size(0); ++i) {
       WMap[std::make_pair(inGradWIMat(i,1), inGradWIMat(i,2))] +=
 	inGradLossVec(inGradWIMat(i,0))*inGradWVVec(i);
+      distinctWMap[inGradWIMat(i,2)] += 1;
     }
     
     
     Tensor* out_grad_weights_indices = NULL;
-    OP_REQUIRES_OK(ctx, ctx->allocate_output(1, TensorShape({WMap.size(),2})
+    OP_REQUIRES_OK(ctx, ctx->allocate_output(1, TensorShape({distinctWMap.size()})
 					     , &out_grad_weights_indices));
     Tensor* out_grad_weights_values = NULL;
-    OP_REQUIRES_OK(ctx, ctx->allocate_output(2, TensorShape({WMap.size()})
+    OP_REQUIRES_OK(ctx, ctx->allocate_output(2, TensorShape({distinctWMap.size(),
+	      inGradInputs.dim_size(1)})
 					     , &out_grad_weights_values));
-    auto out_grad_weight_indices_mat = out_grad_weights_indices->matrix<int>();
-    auto out_grad_weights_values_vec = out_grad_weights_values->vec<float>();
-    // to transverse along with the map
+    auto out_grad_weight_indices_vec = out_grad_weights_indices->vec<int>();
+    auto out_grad_weights_values_mat = out_grad_weights_values->matrix<float>();
+    // transverse the maps
     int wib = 0;
-    for(auto it = WMap.cbegin(); it != WMap.cend(); ++it) {
-      out_grad_weight_indices_mat(wib,0) = it->first.first;
-      out_grad_weight_indices_mat(wib,1) = it->first.second;
-      out_grad_weights_values_vec(wib) = it->second;
+    for(auto it = distinctWMap.cbegin(); it != distinctWMap.cend(); ++it) {
+      out_grad_weight_indices_vec(wib) = it->first;
+      for(int a0 = 0; a0 < inGradInputs.dim_size(1); a0++) {
+	out_grad_weights_values_mat(wib,a0) = WMap[std::make_pair(a0,it->first)];
+      }
       wib++;
     }
 
@@ -395,19 +391,19 @@ public:
     }
 
     Tensor* out_grad_bias_indices = NULL;
-    OP_REQUIRES_OK(ctx, ctx->allocate_output(3, TensorShape({BMap.size(),1})
+    OP_REQUIRES_OK(ctx, ctx->allocate_output(3, TensorShape({BMap.size()})
 					     , &out_grad_bias_indices));
 
     Tensor* out_grad_bias_values = NULL;
     OP_REQUIRES_OK(ctx, ctx->allocate_output(4, TensorShape({BMap.size()})
 					     , &out_grad_bias_values));
-    auto out_grad_bias_indices_mat = out_grad_bias_indices->matrix<int>();
+    auto out_grad_bias_indices_vec = out_grad_bias_indices->vec<int>();
     auto out_grad_bias_values_vec = out_grad_bias_values->vec<float>();
     
     // to transverse along with the map
     int bib = 0;
     for(auto it = BMap.cbegin(); it != BMap.cend(); ++it) {
-      out_grad_bias_indices_mat(bib,0) = it->first;
+      out_grad_bias_indices_vec(bib) = it->first;
       out_grad_bias_values_vec(bib) = it->second;
       bib++;
       }

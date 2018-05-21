@@ -86,13 +86,6 @@ def numpyDense(shape, indices, values):
         out[tuple(indices[ii,:])] = values[ii]
     return out
 
-# def sfmax(logits):
-#     _max = np.max(logits)
-#     _lg = logits-_max
-#     _exp = np.exp(_lg)
-#     _sexp = np.sum(_exp)
-#     return _exp/_sexp
-
 if __name__ == "__main__":
 #/--------------------------------
 #Valid Tests 
@@ -113,7 +106,7 @@ if __name__ == "__main__":
     myLoss = Loss(W,b)
     print("Numpy: ", myLoss.loss_at(I,lower,upper,labels))
     
-    tW = tf.constant(W,dtype=tf.float32)
+    tW = tf.constant(W.T,dtype=tf.float32)
     tb = tf.constant(b,dtype=tf.float32)
     tlower = tf.constant(lower,dtype=tf.int32)
     tupper = tf.constant(upper,dtype=tf.int32)
@@ -141,7 +134,7 @@ if __name__ == "__main__":
     myLoss = Loss(W,b)
     myGrad = myLoss.grad_loss_W(I, lower, upper, labels)
     print("Numpy: ", myGrad)
-    tW = tf.constant(W,dtype=tf.float32)
+    tW = tf.constant(W.T,dtype=tf.float32)
     tb = tf.constant(b,dtype=tf.float32)
     tlower = tf.constant(lower,dtype=tf.int32)
     tupper = tf.constant(upper,dtype=tf.int32)
@@ -169,7 +162,7 @@ if __name__ == "__main__":
     myLoss = Loss(W,b)
     myGrad = myLoss.grad_loss_b(I, lower, upper, labels)
     print("Numpy: ", myGrad)
-    tW = tf.constant(W,dtype=tf.float32)
+    tW = tf.constant(W.T,dtype=tf.float32)
     tb = tf.constant(b,dtype=tf.float32)
     tlower = tf.constant(lower,dtype=tf.int32)
     tupper = tf.constant(upper,dtype=tf.int32)
@@ -197,7 +190,7 @@ if __name__ == "__main__":
     myLoss = Loss(W,b)
     myGrad = myLoss.grad_loss_x(I, lower, upper, labels)
     print("Numpy: ", myGrad)
-    tW = tf.constant(W,dtype=tf.float32)
+    tW = tf.constant(W.T,dtype=tf.float32)
     tb = tf.constant(b,dtype=tf.float32)
     tlower = tf.constant(lower,dtype=tf.int32)
     tupper = tf.constant(upper,dtype=tf.int32)
@@ -224,7 +217,7 @@ if __name__ == "__main__":
     labels=np.concatenate([labels1,labels2])
 
     myLoss = Loss(W,b)
-    tW = tf.constant(W,dtype=tf.float32)
+    tW = tf.constant(W.T,dtype=tf.float32)
     tb = tf.constant(b,dtype=tf.float32)
     tlower = tf.constant(lower,dtype=tf.int32)
     tupper = tf.constant(upper,dtype=tf.int32)

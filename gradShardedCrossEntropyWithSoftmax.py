@@ -11,7 +11,7 @@ sXGhelper = sXfmax_mod.sharded_xent_sfmax_helper_grad
 @ops.RegisterGradient("ShardedXentSfmax")
 def _sharded_xent_sfmax_grad(op, grad):
     loss_grad = grad[0]
-    myGrads = sXGhelper(grad[0],op[1],op[2],op[3],op[4],op[5]))
+    myGrads = sXGhelper(grad[0],op[1],op[2],op[3],op[4],op[5])
     # do we need the reshape?
     gradI = math_ops.matmul(array_ops.reshape(loss_grad,[1,-1]),
                             op.outputs[1])
@@ -20,12 +20,22 @@ def _sharded_xent_sfmax_grad(op, grad):
     return [gradI, gradW, gradB, None, None, None]
 
 
+def indexSlicesDense(shape, indices, values):
+    out = np.zeros(shape)
+    for ii in range(indices.shape[0]):
+        if len(values.shape) > 1:
+            out[indices[ii],:] = values[ii,:]
+        else:
+            out[indices[ii]] = values[ii]
+    return out
+
 def numpyDense(shape, indices, values):
     out = np.zeros(shape)
     for ii in range(indices.shape[0]):
+        #print(indices[ii,:])
+        #print(values[ii])
         out[tuple(indices[ii,:])] = values[ii]
     return out
-
 
 if __name__ == "__main__":
     W = np.array([[0.4,0.32,-1.0,0.5,1.17],
@@ -38,7 +48,7 @@ if __name__ == "__main__":
     labels = np.array([2,4])
     I = np.array([[1.0,1.0,1.0],[0.4,0.4,-1.0]])
     gL = np.array([1.0,1.0])
-    tW = tf.constant(W,dtype=tf.float32)
+    tW = tf.constant(W.T,dtype=tf.float32)
     tb = tf.constant(b,dtype=tf.float32)
     tlower = tf.constant(lower,dtype=tf.int32)
     tupper = tf.constant(upper,dtype=tf.int32)
@@ -55,12 +65,13 @@ if __name__ == "__main__":
         print("C++: ", myGrads[0])
         print("Python: ", np.tensordot(gL,
                                        numpyDense((2,W.shape[0],W.shape[1]),
-                                                  myOut[2],myOut[3]),1))
+                                                  myOut[2],myOut[3])
+                                       ,1))
         print("C++: ", 
-        numpyDense(W.shape,myGrads[1],myGrads[2]))
+              indexSlicesDense(W.T.shape,myGrads[1],myGrads[2]).T)
         print("Python: ", np.tensordot(gL,
                                        numpyDense((2,b.shape[0]),
                                                   myOut[4],myOut[5]),1))
         print("C++: ", 
-        numpyDense(b.shape,myGrads[3],myGrads[4]))
+        indexSlicesDense(b.shape,myGrads[3],myGrads[4]))
 
