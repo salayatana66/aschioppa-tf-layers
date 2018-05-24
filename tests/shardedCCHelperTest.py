@@ -1,3 +1,4 @@
+# We test the helper function that computes the gradients for the sharded layer.
 import tensorflow as tf
 import numpy as np
 from shardedCCSoftmaxTest import Loss, numpyDense

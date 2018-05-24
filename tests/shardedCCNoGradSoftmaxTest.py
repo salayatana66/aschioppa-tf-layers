@@ -1,3 +1,5 @@
+# We test the sharded layer without the gradient operations;
+# Note that this can be used at prediction time as it's faster without the gradient computation.
 import tensorflow as tf
 import numpy as np
 import sys

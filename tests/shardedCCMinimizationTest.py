@@ -1,3 +1,7 @@
+# We test that we minimize with the sharded layer
+# and that we do not impact performance too much with
+# respect to tensorflow's native cross-entropy with logits
+
 import tensorflow as tf
 import numpy as np
 import aschioppa_tf_layers.gradShardedCrossEntropyWithSoftmax
@@ -25,7 +29,13 @@ if __name__ == "__main__":
                   [0.2,0.19,-1.3,0.33]])
     b1 = np.array([[-1.20],[-1.3],[1.4],
                   [-1.3]])
-    x_placeholder = tf.placeholder(tf.float32,shape=[None,3])
+    L = np.array([[ 1.0, 0.5, 0.25],
+                  [0.5, 0.25, 1.0],
+                  [0.25, 1.0, 0.5],
+                  [1.0, 0.5, 0.25],
+                  [0.25, 1.0, 0.5]])
+    
+    x_placeholder = tf.placeholder(tf.float32,shape=[None,5])
     y1_placeholder = tf.placeholder(tf.int32,shape=[None])
     lab_placeholder = tf.placeholder(tf.int32,shape=[None,4])
     l_placeholder = tf.placeholder(tf.int32,shape=[None])
@@ -33,13 +43,16 @@ if __name__ == "__main__":
 
     for _ in range(1000):
         _bx = []
+        _bxL = []
         _y1 = []
         _p1 = []
         _lab = []
         for j in range(25):
-            x=np.reshape(np.random.ranf(3),[1,-1])
+            x = np.reshape(np.random.ranf(5),[1,-1])
+            xL = np.reshape(x.dot(L),[1,-1])
             _bx.append(x)
-            lg1=np.dot(x,W1)+np.reshape(b1,[-1])
+            _bxL.append(xL)
+            lg1=np.dot(xL,W1)+np.reshape(b1,[-1])
             p1 = sfmax(lg1)
             lab = np.reshape(np.array(np.random.multinomial(1,p1.flatten())),
                              (1,-1))
@@ -56,14 +69,17 @@ if __name__ == "__main__":
     print(np.shape(np.concatenate(_lab,axis=0)))
     
     with tf.variable_scope("UnitTest3"):
+        tL = tf.get_variable('tL',dtype=tf.float32,initializer=tf.random_uniform(
+            shape=(5,3), minval=-1.0,maxval=1.0,seed=0))
         tW1 = tf.get_variable('tW1',dtype = tf.float32,initializer=
                               tf.random_uniform(
             shape=(4,3), minval=-1.0,maxval=1.0,seed=0))
         tb1 = tf.get_variable('tb1',initializer=tf.zeros(shape=(4,),
                                                          dtype=tf.float32))
-        lossesAndGrads = sXfmax(x_placeholder,tW1,tb1,l_placeholder,u_placeholder,y1_placeholder)
+        x_score = tf.matmul(x_placeholder,tL)
+        lossesAndGrads = sXfmax(x_score,tW1,tb1,l_placeholder,u_placeholder,y1_placeholder)
         myLoss1 = tf.reduce_mean(lossesAndGrads[0])
-        clayer = tf.reshape(tf.matmul(x_placeholder,tf.transpose(tW1)),(-1,4))+tb1
+        clayer = tf.reshape(tf.matmul(x_score,tf.transpose(tW1)),(-1,4))+tb1
     opt1 = tf.train.GradientDescentOptimizer(10)
     train_op1 = opt1.minimize(myLoss1)
     

@@ -1,3 +1,4 @@
+# This tests the gradients for the sharded layer (again)
 import tensorflow as tf
 import numpy as np
 import sys
