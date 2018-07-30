@@ -1,6 +1,37 @@
 import tensorflow as tf
 import numpy as np
 
+class SimpleFactorRanker:
+    def __init__(self, num_items, num_users, num_latent_factors):
+        self.num_items = num_items
+        self.num_users = num_users
+        self.num_latent_factors = num_latent_factors
+        self.item_weights = tf.get_variable(name="item_weights",shape = [self.num_items,
+                                                       self.num_latent_factors],
+                                              initializer = tf.truncated_normal_initializer(
+                                    mean = 0.0, stddev=1.0/np.sqrt(self.num_latent_factors),
+                                                  dtype=tf.float64),dtype=tf.float64)
+        self.user_weights = tf.get_variable(name="user_weights", shape = [self.num_users,self.num_latent_factors],
+                                              initializer = tf.truncated_normal_initializer(
+                                    mean = 0.0, stddev=1.0/np.sqrt(self.num_latent_factors),
+                                                  dtype=tf.float64),dtype=tf.float64)
+
+    # inputUsers => (batch,)
+    # inputItems => (batch,)
+    # negativeItems => (batch,numNegative)
+    def getFactorProducts(self,inputUsers,inputItems,negativeItems):
+        iI = tf.gather(self.item_weights,inputItems)
+        iU = tf.gather(self.user_weights,inputUsers)
+        iN = tf.gather(self.item_weights,negativeItems)
+        itemScore = tf.einsum('bl,bl->b',iU,iI)
+        negScore = tf.einsum('bl,bnl->bn',iU,iN)
+        return itemScore, negScore
+
+    def getBPRLoss(self,itemScore,negScore):
+        bpr1 = tf.reshape(itemScore,[-1,1])-negScore
+        bpr2 = -tf.sigmoid(bpr1)
+        return tf.reduce_mean(bpr2)
+
 """
  Class of a word-to-vec model which uses matrices U & V with latentfactors to recommend;
  U[i,:].dot(V[j,:]) is the score of user/item i and item/user j
