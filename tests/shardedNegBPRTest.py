@@ -33,8 +33,10 @@ def input_fn(file_names,batch_size):
     files = tf.data.Dataset.list_files(file_names)
     dataset = files.interleave(tf.data.TFRecordDataset,5,1)
     dataset = dataset.batch(batch_size)
-    dataset = dataset.prefetch(10000)
-    dataset = dataset.map(_parse_function,num_parallel_calls=5)
+    dataset = dataset.prefetch(batch_size*5)
+    dataset = dataset.map(_parse_function,num_parallel_calls=15)
+    #dataset = dataset.cache()
+    #dataset = dataset.repeat(5)
     return dataset
 
 
@@ -58,7 +60,9 @@ optimizer = tf.train.GradientDescentOptimizer(1e-2).minimize(loss,
                                              global_step=global_step)
 
 
-
+#config = tf.ConfigProto()
+#  config.intra_op_parallelism_threads = 44
+#config.inter_op_parallelism_threads = 10
 with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
     t0 = time.time()
