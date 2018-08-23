@@ -6,10 +6,19 @@ from aschioppa_tf_layers.ranking import SimpleFactorRanker as Sfr
 import time
 import argparse
 
+class ConvertToInt(argparse.Action):
+    def __init__(self, option_strings, dest, nargs=None, **kwargs):
+         if nargs is not None:
+             raise ValueError("nargs not allowed")
+         super(ConvertToInt, self).__init__(option_strings, dest, **kwargs)
+         
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest, int(float(values)))
+
 parser = argparse.ArgumentParser(description='Test The BPR with on the fly negative samples')
-parser.add_argument('--items', dest = 'items',type=int,nargs=1,required=True)
-parser.add_argument('--users', dest = 'users',type=int,nargs=1,required=True)
-parser.add_argument('--examples', dest = 'examples', type = int, nargs=1,required=True)
+parser.add_argument('-u','--users',action=ConvertToInt)
+parser.add_argument('-i','--items',action=ConvertToInt)
+parser.add_argument('--examples', action=ConvertToInt)
 parser.add_argument('--batch_size', dest = 'batch_size', type = int,nargs=1,required=True)
 parser.add_argument('--num_negs', dest = 'num_negs', type = int,nargs=1,required=True)
 parser.add_argument('--num_latent', dest = 'num_latent', type = int,nargs=1,required=True)
@@ -37,6 +46,8 @@ def input_fn(file_names,batch_size):
     dataset = dataset.map(_parse_function,num_parallel_calls=15)
     #dataset = dataset.cache()
     #dataset = dataset.repeat(5)
+    #dataset = dataset.apply(tf.contrib.data.unbatch())
+    #dataset = dataset.batch(batch_size)
     return dataset
 
 
@@ -50,7 +61,7 @@ myNeg = Snu(args.num_negs[0])
 myNegLayer = myNeg.getSamplingLayer(next_element['item'],next_element['minItem'],
                                                  next_element['maxItem'])
 
-myRanker = Sfr(args.items[0]+1,args.users[0]+1,args.num_latent[0])
+myRanker = Sfr(args.items+1,args.users+1,args.num_latent[0])
 itemScore,negScore=myRanker.getFactorProducts(next_element['user'],next_element['item'],myNegLayer)
 loss = myRanker.getBPRLoss(itemScore,negScore)
 
@@ -66,7 +77,7 @@ optimizer = tf.train.GradientDescentOptimizer(1e-2).minimize(loss,
 with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
     t0 = time.time()
-    for ii in range(args.examples[0]):
+    for ii in range(args.examples):
         try:
             sess.run([optimizer])
         except tf.errors.OutOfRangeError:
